@@ -1,0 +1,151 @@
+= OCSIDE: Open Compatible Interface for Desktop Environments
+image::media/logo.png[OCSIDE Logo, 200, align="center"]
+
+This is the first tiny step towards a much more ambitious goal.
+
+OCSIDE is a library and toolkit written in Rust that allows developers to
+compile their Win32 and WinRT-based C/C++ applications to run natively on Linux.
+It aims to introduce an API that has been stable for over 30 years to an
+operating system available across "dozens of hardware architectures and
+thousands of unique hardware platforms".
+
+== Why?
+
+This project started as a Rust learning exercise. I thought a good way to
+exercise my rust skills was to reimplement a factory test tool I had written
+at work using Python and wxWidgets.
+
+Looking through the Rust ecosystem, I couldn't find a widget toolkit built
+with the same design philosophy as wxWidgets (i.e. a toolkit using native
+widgets). So then my learning exercise morphed to a "wxWidgets like library".
+The more I thought about it, the more I wondered why that was even a thing.
+Wouldn't it be easier if WIN32 was ported to Linux?
+
+== Project Status
+
+Right now, the project is at Milestone 0, where a tiny "Hello World" program
+is compiled and executed on Linux.
+
+You can use the Makefile to compile the project.
+
+The generated demo is in /target/debug/hello, so just execute it using:
+
+    LD_LIBRARY_PATH=target/debug ./target/debug/hello
+
+The API is currently just enough for this job and the internal implementation
+is still in the early stage.
+
+The first major milestone is to compile and run **Notepad++**.
+
+---
+
+== Goals
+
+1. **Native Linux Desktop Environment**
+
+Build a first-class Linux desktop environment where applications run as native
+Linux applications, not Windows binaries running through a compatibility layer.
+
+* Linux kernel/userspace underneath
+* Wayland/XDG as the native graphical foundation
+* D-Bus, portals and other Linux facilities where appropriate
+
+2. **Win32/WinRT as the Application Platform**
+
+Provide an implementation of the Win32 and WinRT programming models on Linux.
+The application developer should see familiar Windows APIs while the
+implementation uses appropriate Linux primitives underneath.
+
+3. **Minimise Developer Friction**
+
+A Windows application developer should not need to think about OCSIDE. Ideally:
+
+* Upstream source compiles
+* No `#ifdef OCSIDE`
+* No OCSIDE-specific APIs
+* No application-specific workarounds
+* No runtime checks for OCSIDE
+* No maintaining a special OCSIDE fork
+
+4. **Semantic Compatibility Where It Matters**
+
+Don't attempt to perfectly reproduce every historical Windows behaviour.
+We'll focus on behavioural compatibility to maintain the user (and developer)
+experience rather than maximising the percentage of Windows APIs implemented.
+
+5. **Preserve the Linux Ecosystem**
+
+Applications should be able to interact naturally with Wayland, XWayland,
+D-Bus, XDG portals, Linux filesystems, system services, Vulkan/OpenGL and
+POSIX/Linux APIs. Win32/WinRT is the application-facing compatibility model,
+not a requirement to replace Linux's underlying ecosystem.
+
+---
+
+== Non-Goals
+
+1. **Binary Compatibility:**
+
+Explicitly no PE loading, Windows `.exe` or `.dll` compatibility, Windows ABI
+compatibility or running arbitrary Windows binaries.
+
+2. **Reimplementing Windows/NT Internals:**
+
+OCSIDE doesn't need to reproduce the NT kernel architecture, Windows object
+manager, process implementation, driver model, service architecture or
+Microsoft's internal COM implementation; API compatibility does not imply
+implementation compatibility.
+
+3. **Recreating Windows Itself:**
+
+Not cloning Explorer, the Start menu, the Windows taskbar, the Windows shell,
+the Windows registry or Windows UX conventions wholesale. OCSIDE is a Linux DE
+with a Windows-compatible application platform, not "Windows rebuilt on Linux".
+
+4. **Exhaustive Semantic Compatibility:**
+
+Undocumented quirks, obscure APIs and historical accidents aren't automatically
+compatibility requirements; The project optimises for user impact, not
+completeness for its own sake.
+
+5. **Application-Specific Compatibility Hacks:**
+
+Applications should not need an OCSIDE compatibility layer; If Notepad++ needs
+an `#ifdef OCSIDE`, that's evidence that OCSIDE's implementation needs
+improvement, not something the Notepad++ developers should be expected to
+accommodate for.
+
+6. **X11 as the Native Architecture:**
+
+X11/XWayland can be supported, but Wayland/XDG should be the native desktop
+foundation.
+
+---
+
+== Roadmap
+
+1. **Finalise the Architecture:**
+
+Currently only the top level window is implemented. Create minimal demos -
+A hello world label on the Window area and a Counter with a button and label
+- to flesh out child windows and user interaction.
+
+1. **Decouple Backend Architecture:**
+
+Wayland toolkit from the main engine to create a headless stub backend
+specifically for unit testing.
+
+2. **MSBuild Integration:**
+
+Create an MSBuild project with appropriate platform configurations to compile
+the Notepad++ solution and project files, flushing out missing API calls.
+
+3. **API Implementation & Stubs:**
+
+Implement missing `USER32`/`GDI32` APIs and stubs uncovered during the MSBuild
+phase.
+
+4. **Visual Studio & WSL2 SDK:**
+
+Build a developer SDK enabling code compilation and execution in WSL2 directly
+using Visual C++ Community Edition

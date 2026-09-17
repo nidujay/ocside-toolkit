@@ -1,0 +1,18 @@
+[package]
+name = "ocside"
+version = "0.1.0"
+edition = "2024"
+license = "LGPL-3.0-or-later"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+smithay-client-toolkit = "0.21.1"
+wayland-client = "0.31.15"
+slotmap = "1.1.1"
+mio = { version = "1.2.3", features = ["os-poll", "os-ext"]}
+nix = { version = "0.31.3", features = ["event"]}
+
+[build-dependencies]
+cbindgen = "0.29"
