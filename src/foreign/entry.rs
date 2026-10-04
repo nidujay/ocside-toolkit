@@ -6,6 +6,7 @@
 use std::ffi::{c_char, c_int};
 
 use crate::{
+    backend::wayland::WaylandBackend,
     foreign::types::{HINSTANCE, PWSTR},
     runtime::runtime_init,
 };
@@ -25,7 +26,8 @@ pub unsafe extern "C" fn main(argc: c_int, argv: *mut *mut c_char) -> c_int {
     let hPrevInstance = 0 as HINSTANCE;
     let pCmdLine = &[0, 0, 0] as PWSTR;
 
-    runtime_init();
+    let backend = Box::new(WaylandBackend::new().expect("msg"));
+    runtime_init(backend);
 
     unsafe { wWinMain(hInstance, hPrevInstance, pCmdLine, 1) }
 }

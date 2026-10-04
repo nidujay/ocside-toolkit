@@ -2,54 +2,52 @@
 use mio::unix::SourceFd;
 use mio::{Interest, Token};
 use nix::sys::eventfd::{EfdFlags, EventFd};
-use slotmap::{Key, KeyData, SecondaryMap, SlotMap, new_key_type};
+use slotmap::{Key, KeyData, SlotMap, new_key_type};
+use std::cell::OnceCell;
 use std::{
     cell::RefCell,
     collections::HashMap,
     os::fd::{AsRawFd, RawFd},
-    sync::{
-        LazyLock, Mutex,
-        mpsc::{Receiver, Sender, channel},
-    },
-    thread::{self, ThreadId},
+    sync::mpsc::{Receiver, Sender, channel},
 };
 
-use crate::backend::PlatformWindow;
+use crate::backend::Backend;
 use crate::win32::{window::Window, wndproc::WndProcHandle};
 use crate::winmsg::Msg;
 
 new_key_type! {pub struct Handle;}
 
-// Handles for Windows (thread affine) and Msg queues (one per thread)
-pub static HANDLES: LazyLock<Mutex<SlotMap<Handle, Resource>>> =
-    LazyLock::new(|| Mutex::new(SlotMap::with_key()));
-
-thread_local! {
-    pub static MSG_QUEUE: RefCell<MsgQueue> = RefCell::new(MsgQueue::new());
-    pub static WINDOW_CLASSES: RefCell<HashMap<String, WndProcHandle>> = RefCell::new(HashMap::new());
-    pub static HANDLE_TYPES: RefCell<SecondaryMap<Handle, ResourceType>> = RefCell::new(SecondaryMap::new());
-    pub static WINDOWS: RefCell<SecondaryMap<Handle, Window>> = RefCell::new(SecondaryMap::new());
-    pub static PLATORM_WINDOWS: RefCell<SecondaryMap<Handle, PlatformWindow>> = RefCell::new(SecondaryMap::new());
-    pub static POLL: RefCell<mio::Poll> = RefCell::new(mio::Poll::new().expect("Failed to create event loop!"));
+#[derive(Debug)]
+pub enum EventType {
+    Backend = 1,
+    MsgQueue = 2,
 }
 
-#[derive(Debug, PartialEq)]
-pub struct Resource {
-    thread: ThreadId,
+impl From<EventType> for Token {
+    fn from(s: EventType) -> Self {
+        Token(s as usize)
+    }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum ResourceType {
-    Window,
-    EventQueue,
-}
+impl From<Token> for EventType {
+    fn from(value: Token) -> Self {
+        const BACKEND: usize = EventType::Backend as usize;
+        const MSGQUEUE: usize = EventType::MsgQueue as usize;
 
-impl Resource {
-    pub fn new() -> Self {
-        Self {
-            thread: thread::current().id(),
+        match value.0 {
+            BACKEND => EventType::Backend,
+            MSGQUEUE => EventType::MsgQueue,
+            _ => panic!("Internal error: Unexpected event token."),
         }
     }
+}
+
+thread_local! {
+    pub static BACKEND: OnceCell<RefCell<Box<dyn Backend>>> = OnceCell::new();
+    pub static MSG_QUEUE: RefCell<MsgQueue> = RefCell::new(MsgQueue::new());
+    pub static WINDOW_CLASSES: RefCell<HashMap<String, WndProcHandle>> = RefCell::new(HashMap::new());
+    pub static WINDOWS: RefCell<SlotMap<Handle, Window>> = RefCell::new(SlotMap::with_key());
+    pub static POLL: RefCell<mio::Poll> = RefCell::new(mio::Poll::new().expect("Failed to create event loop!"));
 }
 
 pub struct MsgQueue {
@@ -94,22 +92,20 @@ impl From<Token> for Handle {
     }
 }
 
-pub fn runtime_init() {
-    // Get a handle for the event queue
-    if let Ok(mut handles) = HANDLES.lock() {
-        let h = handles.insert(Resource::new());
-        POLL.with_borrow_mut(|poll| {
-            MSG_QUEUE.with_borrow(|mq| {
-                let mut source = SourceFd(&mq.raw_fd());
-                if poll
-                    .registry()
-                    .register(&mut source, h.into(), Interest::READABLE)
-                    .is_err()
-                {
-                    todo!("Either panic (main thread) or return error when creating thread");
-                }
-            })
-        });
-        HANDLE_TYPES.with_borrow_mut(|ht| ht.insert(h, ResourceType::EventQueue));
-    }
+pub fn runtime_init(backend: Box<dyn Backend>) {
+    // Setup event handles that we'll be polling
+    // within the thread
+    POLL.with_borrow_mut(|poll| {
+        let mut source = SourceFd(&backend.get_fd());
+        let token = EventType::Backend.into();
+        let interests = Interest::READABLE;
+        poll.registry().register(&mut source, token, interests);
+
+        let mut source = SourceFd(&MSG_QUEUE.with_borrow(|mq| mq.raw_fd()));
+        let token = EventType::MsgQueue.into();
+        poll.registry().register(&mut source, token, interests);
+    });
+
+    // Store the backend for later use
+    BACKEND.with(|b| b.set(RefCell::new(backend)));
 }

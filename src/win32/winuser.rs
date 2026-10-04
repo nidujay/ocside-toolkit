@@ -1,16 +1,11 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-use mio::{Events, Interest, unix::SourceFd};
-use slotmap::SlotMap;
-use std::{io, sync::MutexGuard};
+use mio::Events;
 
 use crate::{
-    backend::{self},
-    runtime::{
-        HANDLE_TYPES, HANDLES, Handle, MSG_QUEUE, PLATORM_WINDOWS, POLL, Resource, ResourceType,
-        WINDOW_CLASSES, WINDOWS,
-    },
-    win32::{window::Window, winuser::PostHwnd::CurrentThread, wndproc::WndProcHandle},
-    winmsg::{LParam, Msg, MsgType, WM_CLOSE, WM_DESTROY, WM_QUIT, WParam},
+    backend::{self, BackendEvent},
+    runtime::{BACKEND, EventType, Handle, MSG_QUEUE, POLL, WINDOW_CLASSES, WINDOWS},
+    win32::{window::Window, wndproc::WndProcHandle},
+    winmsg::{LParam, Msg, MsgType, WM_CLOSE, WM_DESTROY, WM_PAINT, WM_QUIT, WParam},
 };
 
 pub fn register_class(name: String, wndproc: WndProcHandle) -> bool {
@@ -18,36 +13,33 @@ pub fn register_class(name: String, wndproc: WndProcHandle) -> bool {
     true
 }
 
-struct StagedHandle<'a> {
-    handles: MutexGuard<'a, SlotMap<Handle, Resource>>,
+struct PendingWindow {
     handle: Handle,
-    committed: bool,
+    moved: bool,
 }
 
-impl<'a> StagedHandle<'a> {
-    fn new(mut handles: MutexGuard<'a, SlotMap<Handle, Resource>>) -> Self {
-        let handle = handles.insert(Resource::new());
+impl PendingWindow {
+    fn new(handle: Handle) -> Self {
         Self {
-            handles,
-            handle,
-            committed: false,
+            handle: handle,
+            moved: false,
         }
     }
 
-    fn get(&self) -> Handle {
-        self.handle
+    fn handle(&self) -> Handle {
+        self.handle.clone()
     }
 
     fn commit(mut self) -> Handle {
-        self.committed = true;
+        self.moved = true;
         self.handle
     }
 }
 
-impl Drop for StagedHandle<'_> {
+impl Drop for PendingWindow {
     fn drop(&mut self) {
-        if !self.committed {
-            self.handles.remove(self.handle);
+        if !self.moved {
+            WINDOWS.with_borrow_mut(|windows| windows.remove(self.handle));
         }
     }
 }
@@ -56,27 +48,52 @@ pub fn create_window(class: &str, title: &str) -> Option<Handle> {
     // Get a copy of the windows procedure for the given class
     let wndproc = WINDOW_CLASSES.with(|wc| wc.borrow().get(class).copied())?;
 
-    // Register a handle for this Window
+    // Allocate a handle
+    let handle = WINDOWS.with_borrow_mut(|windows| windows.insert(Window::Placeholder));
+    let window = PendingWindow::new(handle.clone());
+
+    // At this point we can invoke client wndproc with WM_CREATE, etc. If they return a failure,
+    // the pre-allocated handle is dropped anyway
+
+    // Now construct the backend window with the associated listener
     let sender = MSG_QUEUE.with_borrow(|mq| mq.clone_sender());
-    let window = Window::new(wndproc)?;
 
-    let handle = StagedHandle::new(HANDLES.lock().ok()?);
+    let backend_event_listener = move |e: BackendEvent| {
+        let _ = sender.send(match e {
+            BackendEvent::WindowReady => Msg {
+                hwnd: Some(handle),
+                msg: MsgType(WM_PAINT),
+                wparam: WParam(0),
+                lparam: LParam(0),
+            },
+            BackendEvent::Close => Msg {
+                hwnd: Some(handle),
+                msg: MsgType(WM_CLOSE),
+                wparam: WParam(0),
+                lparam: LParam(0),
+            },
+        });
+    };
 
-    let pfmwindow = backend::create_window(title, sender, handle.get())?;
-    POLL.with_borrow_mut(|poll| -> io::Result<()> {
-        let mut source = SourceFd(&pfmwindow.raw_fd());
-        poll.registry()
-            .register(&mut source, handle.get().into(), Interest::READABLE)
-    })
-    .ok()?;
+    let backend_handle = BACKEND.with(|backend| {
+        let mut backend = backend
+            .get()
+            .expect("Internal Error: Backend not initialised!")
+            .borrow_mut();
+        backend.create_window(title, Box::new(backend_event_listener))
+    })?;
 
-    let handle = handle.commit();
+    // Now replace the Placeholder with the real window
+    let handle = window.commit();
+    let window = Window::Complete {
+        wndproc,
+        backend_handle,
+    };
 
-    // Ensure fallable operations occur before this point
-    HANDLE_TYPES.with_borrow_mut(|ht| ht.insert(handle, ResourceType::Window));
-    PLATORM_WINDOWS.with(|w| w.borrow_mut().insert(handle, pfmwindow));
-    WINDOWS.with(|w| w.borrow_mut().insert(handle, window));
-    println!("Window successfully created with handle {:?}", handle);
+    WINDOWS.with_borrow_mut(|windows| {
+        windows.detach(handle);
+        windows.reattach(handle, window);
+    });
     Some(handle)
 }
 
@@ -88,34 +105,37 @@ pub enum GetHwnd {
 
 pub fn get_message(from: GetHwnd) -> Option<Msg> {
     match from {
-        GetHwnd::AnyOnCurrentThread => loop {
-            if let Some(msg) = MSG_QUEUE.with_borrow_mut(|mq| mq.recv()) {
-                println!("Recived msg {:?}", msg);
-                return if msg.msg_type() == MsgType(WM_QUIT) {
-                    None
-                } else {
-                    Some(msg)
-                };
-            }
-
-            POLL.with_borrow_mut(|poll| {
-                let mut events = Events::with_capacity(1024);
-                let _ = poll.poll(&mut events, None);
-                for event in &events {
-                    let handle: Handle = event.token().into();
-                    let htype = HANDLE_TYPES.with_borrow(|ht| *ht.get(handle).unwrap());
-
-                    match htype {
-                        ResourceType::Window => PLATORM_WINDOWS.with_borrow_mut(|w| {
-                            let w = w.get_mut(handle).unwrap();
-                            w.process_event();
-                        }),
-                        ResourceType::EventQueue => todo!(),
-                    }
-                }
-            });
-        },
+        GetHwnd::AnyOnCurrentThread => get_message_from_any(),
         _ => todo!(),
+    }
+}
+
+fn get_message_from_any() -> Option<Msg> {
+    loop {
+        if let Some(msg) = MSG_QUEUE.with_borrow_mut(|mq| mq.recv()) {
+            return if msg.msg_type() == MsgType(WM_QUIT) {
+                None
+            } else {
+                Some(msg)
+            };
+        }
+
+        POLL.with_borrow_mut(|poll| {
+            let mut events = Events::with_capacity(1024);
+            let _ = poll.poll(&mut events, None);
+
+            for event in &events {
+                let event_type: EventType = event.token().into();
+
+                match event_type {
+                    EventType::Backend => BACKEND.with(|backend| {
+                        let mut backend = backend.get().expect("").borrow_mut();
+                        backend.process();
+                    }),
+                    EventType::MsgQueue => todo!(),
+                }
+            }
+        });
     }
 }
 
@@ -124,9 +144,22 @@ pub trait WndProcHook {
 }
 
 pub fn dispatch_message(msg: Msg, hook: impl WndProcHook) {
-    if let Some(hwnd) = msg.hwnd() {
-        let wndproc = WINDOWS.with_borrow(|w| w.get(hwnd).unwrap().wndproc);
-        hook.invoke(wndproc, hwnd, msg.msg_type(), msg.wparam);
+    if let Some(hwnd) = msg.hwnd {
+        let wndproc = WINDOWS.with_borrow(|windows| {
+            let window = windows.get(hwnd);
+            if let Some(window) = window {
+                match window {
+                    Window::Placeholder => todo!(),
+                    Window::Complete {
+                        wndproc,
+                        backend_handle: _,
+                    } => *wndproc,
+                }
+            } else {
+                todo!();
+            }
+        });
+        hook.invoke(wndproc, hwnd, msg.msg, msg.wparam);
     }
 }
 
@@ -143,7 +176,7 @@ pub fn post_message(hwnd: PostHwnd, msg: MsgType, wparam: WParam, lparam: LParam
         PostHwnd::Window(hwnd) => sender
             .send(Msg::new(Some(hwnd), msg, wparam, lparam))
             .is_ok(),
-        CurrentThread => sender.send(Msg::new(None, msg, wparam, lparam)).is_ok(),
+        PostHwnd::CurrentThread => sender.send(Msg::new(None, msg, wparam, lparam)).is_ok(),
         _ => todo!(),
     }
 }
@@ -168,6 +201,29 @@ pub fn def_window_proc(hwnd: Handle, msg: MsgType) {
                 LParam(0),
             );
         }
+        WM_PAINT => paint(hwnd),
         _ => todo!(),
     }
+}
+
+fn paint(hwnd: Handle) {
+    let window = WINDOWS.with_borrow_mut(|windows| {
+        let window = windows.get(hwnd).unwrap();
+        match window {
+            Window::Placeholder => todo!(),
+            Window::Complete {
+                wndproc: _,
+                backend_handle,
+            } => backend_handle.clone(),
+        }
+    });
+
+    BACKEND.with(|backend| {
+        let backend = backend
+            .get()
+            .expect("Internal Error: Backend not initialised!")
+            .borrow_mut();
+
+        backend.paint(window);
+    });
 }

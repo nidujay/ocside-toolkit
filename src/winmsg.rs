@@ -40,3 +40,4 @@ impl Msg {
 pub const WM_DESTROY: u32 = 0x0002;
 pub const WM_CLOSE: u32 = 0x0010;
 pub const WM_QUIT: u32 = 0x0012;
+pub const WM_PAINT: u32 = 0x0004;

@@ -349,6 +349,7 @@ dependencies = [
  "nix",
  "slotmap",
  "smithay-client-toolkit",
+ "thiserror",
  "wayland-client",
 ]
 

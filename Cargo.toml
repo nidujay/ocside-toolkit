@@ -8,6 +8,7 @@ license = "LGPL-3.0-or-later"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
+thiserror = "2"
 smithay-client-toolkit = "0.21.1"
 wayland-client = "0.31.15"
 slotmap = "1.1.1"
