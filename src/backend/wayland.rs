@@ -3,7 +3,7 @@
 // This module is heavily based on the simple_window example in Smithay-client-toolkit
 // version 0.21.1, which is MIT licensed
 
-use crate::backend::{Backend, BackendEvent, BackendWindowHandle};
+use crate::backend::{Backend, BackendError, BackendEvent, BackendWindowHandle};
 use slotmap::SlotMap;
 use smithay_client_toolkit::{
     activation::{ActivationHandler, ActivationState, RequestData},
@@ -68,7 +68,7 @@ pub struct WaylandBackend {
     wc: WaylandConnection,
     event_loop: EventLoop<'static, WaylandConnection>,
 
-    globals: GlobalList,
+    _globals: GlobalList,
     qh: QueueHandle<WaylandConnection>,
 
     compositor: CompositorState,
@@ -211,7 +211,7 @@ impl WaylandBackend {
             },
             event_loop: event_loop,
 
-            globals: globals,
+            _globals: globals,
             qh: qh,
 
             compositor: compositor,
@@ -272,8 +272,10 @@ impl Backend for WaylandBackend {
         Some(key)
     }
 
-    fn process(&mut self) {
-        self.event_loop.dispatch(None, &mut self.wc);
+    fn process(&mut self) -> Result<(), BackendError> {
+        self.event_loop
+            .dispatch(None, &mut self.wc)
+            .or(Err(BackendError))
     }
 
     fn get_fd(&self) -> RawFd {
@@ -321,8 +323,8 @@ impl CompositorHandler for WaylandConnection {
 
     fn frame(
         &mut self,
-        conn: &Connection,
-        qh: &QueueHandle<Self>,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
         _surface: &wl_surface::WlSurface,
         _time: u32,
     ) {
@@ -483,7 +485,7 @@ impl KeyboardHandler for WaylandConnection {
 impl ActivationHandler for WaylandConnection {
     type RequestUdata = ();
 
-    fn new_token(&mut self, token: String, _data: &RequestData<()>) {
+    fn new_token(&mut self, _token: String, _data: &RequestData<()>) {
         println!("Activation handler");
         /*
         self.xdg_activation

@@ -9,6 +9,7 @@ use crate::{
     foreign::types::*,
     runtime::Handle,
     win32::{
+        error::{CaptureError, OcsideError},
         winuser::{
             GetHwnd, WndProcHook, create_window, def_window_proc, dispatch_message, get_message,
             post_quit_message, register_class,
@@ -21,18 +22,18 @@ use crate::{
 struct Lpcwstr(pub LPCWSTR);
 
 impl TryFrom<Lpcwstr> for String {
-    type Error = ();
+    type Error = OcsideError;
 
     fn try_from(value: Lpcwstr) -> Result<Self, Self::Error> {
         let value = value.0;
         if value.is_null() {
-            Err(())
+            Err(OcsideError::InvalidParam)
         } else {
             let mut s = String::new();
 
             for i in 0.. {
                 let c = unsafe { *value.add(i) } as u32;
-                let codept = char::from_u32(c).ok_or(())?;
+                let codept = char::from_u32(c).ok_or(OcsideError::InvalidString)?;
                 if c == 0 {
                     break;
                 }
@@ -67,17 +68,20 @@ pub type WNDPROC =
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RegisterClassW(lpWndClass: *const WNDCLASSW) -> ATOM {
     if lpWndClass.is_null() {
-        0
+        Err(OcsideError::InvalidParam)
     } else {
-        ffi_register_class(unsafe { &(*lpWndClass) }).unwrap_or_default()
+        ffi_register_class(unsafe { &(*lpWndClass) })
     }
+    .last_error()
+    .unwrap_or(0)
 }
 
-fn ffi_register_class(wc: &WNDCLASSW) -> Option<ATOM> {
-    let name = String::try_from(Lpcwstr(wc.lpszClassName)).ok()?;
-    let wndproc = WndProcHandle(wc.lpfnWndProc.expect("Can not be NULL") as usize);
+fn ffi_register_class(wc: &WNDCLASSW) -> Result<ATOM, OcsideError> {
+    let name = String::try_from(Lpcwstr(wc.lpszClassName))?;
+    let wndproc = wc.lpfnWndProc.ok_or(OcsideError::InvalidParam)?;
+    let wndproc = WndProcHandle(wndproc as usize);
 
-    Some(register_class(name, wndproc) as ATOM)
+    register_class(name, wndproc)
 }
 
 #[unsafe(no_mangle)]
@@ -156,19 +160,17 @@ pub unsafe extern "C" fn CreateWindowExW(
     hInstance: HINSTANCE,
     lpParam: LPVOID,
 ) -> HWND {
-    match create_window_impl(lpClassName, lpWindowName) {
-        Some(hwnd) => hwnd,
-        None => 0 as HWND,
+    match ffi_create_window(lpClassName, lpWindowName).last_error() {
+        Ok(hwnd) => hwnd,
+        Err(_) => 0 as HWND,
     }
 }
 
-fn create_window_impl(lpClassName: LPCWSTR, lpWindowName: LPCWSTR) -> Option<HWND> {
-    let class = String::try_from(Lpcwstr(lpClassName)).ok()?;
-    let title = String::try_from(Lpcwstr(lpWindowName)).ok()?;
+fn ffi_create_window(lpClassName: LPCWSTR, lpWindowName: LPCWSTR) -> Result<HWND, OcsideError> {
+    let class = String::try_from(Lpcwstr(lpClassName))?;
+    let title = String::try_from(Lpcwstr(lpWindowName))?;
     let hwnd = create_window(&class, &title)?;
-    let rval = HWND::from(hwnd);
-    println!("CreateWindow FFI {:?} -> {:?}", hwnd, rval);
-    Some(rval)
+    Ok(HWND::from(hwnd))
 }
 
 #[unsafe(no_mangle)]
@@ -228,15 +230,18 @@ pub unsafe extern "C" fn GetMessageW(
     wMsgFilterMax: UINT,
 ) -> BOOL {
     let hwnd = hWnd.into();
-
-    if let Some(msg) = get_message(hwnd) {
-        let msg = MSG::new(msg.hwnd(), msg.msg_type().0);
-        unsafe {
-            *lpMsg = msg;
-        }
-        TRUE
-    } else {
-        FALSE
+    match get_message(hwnd).last_error() {
+        Ok(msg) => match msg {
+            Some(msg) => {
+                let msg = MSG::new(msg.hwnd(), msg.msg_type().0);
+                unsafe {
+                    *lpMsg = msg;
+                };
+                TRUE
+            }
+            None => FALSE,
+        },
+        Err(_) => FALSE,
     }
 }
 

@@ -26,8 +26,20 @@ pub unsafe extern "C" fn main(argc: c_int, argv: *mut *mut c_char) -> c_int {
     let hPrevInstance = 0 as HINSTANCE;
     let pCmdLine = &[0, 0, 0] as PWSTR;
 
-    let backend = Box::new(WaylandBackend::new().expect("msg"));
-    runtime_init(backend);
+    match WaylandBackend::new() {
+        Ok(backend) => {
+            let backend = Box::new(backend);
 
-    unsafe { wWinMain(hInstance, hPrevInstance, pCmdLine, 1) }
+            if let Err(e) = runtime_init(backend) {
+                println!("Failed to initialise runtime: {}", e);
+                1
+            } else {
+                unsafe { wWinMain(hInstance, hPrevInstance, pCmdLine, 1) }
+            }
+        }
+        Err(e) => {
+            println!("Failed to initialise backend {}", e);
+            1
+        }
+    }
 }

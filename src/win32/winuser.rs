@@ -2,15 +2,22 @@
 use mio::Events;
 
 use crate::{
-    backend::{self, BackendEvent},
+    backend::BackendEvent,
     runtime::{BACKEND, EventType, Handle, MSG_QUEUE, POLL, WINDOW_CLASSES, WINDOWS},
-    win32::{window::Window, wndproc::WndProcHandle},
+    win32::{error::OcsideError, window::Window, wndproc::WndProcHandle},
     winmsg::{LParam, Msg, MsgType, WM_CLOSE, WM_DESTROY, WM_PAINT, WM_QUIT, WParam},
 };
 
-pub fn register_class(name: String, wndproc: WndProcHandle) -> bool {
-    WINDOW_CLASSES.with(|wc| wc.borrow_mut().insert(name, wndproc));
-    true
+pub fn register_class(name: String, wndproc: WndProcHandle) -> Result<u16, OcsideError> {
+    WINDOW_CLASSES.with(|wc| {
+        let mut wc = wc.borrow_mut();
+        if wc.contains_key(&name) {
+            Err(OcsideError::ClassRegistered)
+        } else {
+            wc.insert(name, wndproc);
+            Ok(1)
+        }
+    })
 }
 
 struct PendingWindow {
@@ -26,7 +33,7 @@ impl PendingWindow {
         }
     }
 
-    fn handle(&self) -> Handle {
+    fn _handle(&self) -> Handle {
         self.handle.clone()
     }
 
@@ -44,9 +51,14 @@ impl Drop for PendingWindow {
     }
 }
 
-pub fn create_window(class: &str, title: &str) -> Option<Handle> {
+pub fn create_window(class: &str, title: &str) -> Result<Handle, OcsideError> {
     // Get a copy of the windows procedure for the given class
-    let wndproc = WINDOW_CLASSES.with(|wc| wc.borrow().get(class).copied())?;
+    let wndproc = WINDOW_CLASSES.with(|wc| {
+        wc.borrow()
+            .get(class)
+            .copied()
+            .ok_or(OcsideError::ClassNotFound)
+    })?;
 
     // Allocate a handle
     let handle = WINDOWS.with_borrow_mut(|windows| windows.insert(Window::Placeholder));
@@ -78,9 +90,11 @@ pub fn create_window(class: &str, title: &str) -> Option<Handle> {
     let backend_handle = BACKEND.with(|backend| {
         let mut backend = backend
             .get()
-            .expect("Internal Error: Backend not initialised!")
+            .expect("BUG: Backend not initialised!")
             .borrow_mut();
-        backend.create_window(title, Box::new(backend_event_listener))
+        backend
+            .create_window(title, Box::new(backend_event_listener))
+            .ok_or(OcsideError::WindowCreateFailed)
     })?;
 
     // Now replace the Placeholder with the real window
@@ -94,7 +108,7 @@ pub fn create_window(class: &str, title: &str) -> Option<Handle> {
         windows.detach(handle);
         windows.reattach(handle, window);
     });
-    Some(handle)
+    Ok(handle)
 }
 
 pub enum GetHwnd {
@@ -103,40 +117,55 @@ pub enum GetHwnd {
     CurrentThread,
 }
 
-pub fn get_message(from: GetHwnd) -> Option<Msg> {
+pub fn get_message(from: GetHwnd) -> Result<Option<Msg>, OcsideError> {
     match from {
         GetHwnd::AnyOnCurrentThread => get_message_from_any(),
         _ => todo!(),
     }
 }
 
-fn get_message_from_any() -> Option<Msg> {
+fn get_message_from_any() -> Result<Option<Msg>, OcsideError> {
     loop {
         if let Some(msg) = MSG_QUEUE.with_borrow_mut(|mq| mq.recv()) {
-            return if msg.msg_type() == MsgType(WM_QUIT) {
+            return Ok(if msg.msg_type() == MsgType(WM_QUIT) {
                 None
             } else {
                 Some(msg)
-            };
+            });
         }
 
-        POLL.with_borrow_mut(|poll| {
-            let mut events = Events::with_capacity(1024);
-            let _ = poll.poll(&mut events, None);
-
-            for event in &events {
-                let event_type: EventType = event.token().into();
-
-                match event_type {
-                    EventType::Backend => BACKEND.with(|backend| {
-                        let mut backend = backend.get().expect("").borrow_mut();
-                        backend.process();
-                    }),
-                    EventType::MsgQueue => todo!(),
-                }
-            }
-        });
+        // Nothing in the queue. Wait for Backend or external thread events
+        poll()?;
     }
+}
+
+fn poll() -> Result<(), OcsideError> {
+    POLL.with_borrow_mut(|poll| -> Result<(), OcsideError> {
+        let mut events = Events::with_capacity(1024);
+        poll.poll(&mut events, None)
+            .or(Err(OcsideError::PollError))?;
+
+        for event in &events {
+            let event_type: EventType = event.token().into();
+
+            match event_type {
+                EventType::Backend => process_backend_event(),
+                EventType::MsgQueue => todo!(),
+            }?;
+        }
+        Ok(())
+    })
+}
+
+fn process_backend_event() -> Result<(), OcsideError> {
+    BACKEND.with(|backend| -> Result<(), OcsideError> {
+        let mut backend = backend
+            .get()
+            .expect("BUG: Backend not initialised")
+            .borrow_mut();
+        backend.process()?;
+        Ok(())
+    })
 }
 
 pub trait WndProcHook {
@@ -221,7 +250,7 @@ fn paint(hwnd: Handle) {
     BACKEND.with(|backend| {
         let backend = backend
             .get()
-            .expect("Internal Error: Backend not initialised!")
+            .expect("BUG: Backend not initialised!")
             .borrow_mut();
 
         backend.paint(window);

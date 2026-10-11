@@ -12,6 +12,7 @@ use std::{
 };
 
 use crate::backend::Backend;
+use crate::win32::error::OcsideError;
 use crate::win32::{window::Window, wndproc::WndProcHandle};
 use crate::winmsg::Msg;
 
@@ -92,20 +93,27 @@ impl From<Token> for Handle {
     }
 }
 
-pub fn runtime_init(backend: Box<dyn Backend>) {
+pub fn runtime_init(backend: Box<dyn Backend>) -> Result<(), OcsideError> {
     // Setup event handles that we'll be polling
     // within the thread
-    POLL.with_borrow_mut(|poll| {
+    POLL.with_borrow_mut(|poll| -> Result<(), OcsideError> {
         let mut source = SourceFd(&backend.get_fd());
         let token = EventType::Backend.into();
         let interests = Interest::READABLE;
-        poll.registry().register(&mut source, token, interests);
+        poll.registry()
+            .register(&mut source, token, interests)
+            .or(Err(OcsideError::RuntimeInitFailure))?;
 
         let mut source = SourceFd(&MSG_QUEUE.with_borrow(|mq| mq.raw_fd()));
         let token = EventType::MsgQueue.into();
-        poll.registry().register(&mut source, token, interests);
-    });
+        poll.registry()
+            .register(&mut source, token, interests)
+            .or(Err(OcsideError::RuntimeInitFailure))?;
+        Ok(())
+    })?;
 
     // Store the backend for later use
-    BACKEND.with(|b| b.set(RefCell::new(backend)));
+    BACKEND
+        .with(|b| b.set(RefCell::new(backend)))
+        .or(Err(OcsideError::RuntimeInitFailure))
 }
