@@ -5,3 +5,6 @@ pub mod win32;
 
 mod backend;
 mod winmsg;
+
+#[cfg(test)]
+mod tests;

@@ -3,6 +3,7 @@ use std::os::fd::RawFd;
 use slotmap::new_key_type;
 use thiserror::Error;
 
+pub mod headless;
 pub mod wayland;
 
 new_key_type! {pub struct BackendWindowHandle;}
