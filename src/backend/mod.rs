@@ -24,6 +24,7 @@ pub trait Backend {
         title: &str,
         handler: Box<dyn Fn(BackendEvent)>,
     ) -> Option<BackendWindowHandle>;
+    fn destroy_window(&mut self, handle: BackendWindowHandle);
     fn process(&mut self) -> Result<(), BackendError>;
     fn get_fd(&self) -> RawFd;
     fn paint(&self, handle: BackendWindowHandle);

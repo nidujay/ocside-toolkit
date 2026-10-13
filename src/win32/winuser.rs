@@ -111,6 +111,11 @@ pub fn create_window(class: &str, title: &str) -> Result<Handle, OcsideError> {
     Ok(handle)
 }
 
+pub fn destroy_window(hwnd: Handle) -> Result<(), OcsideError> {
+    WINDOWS.with_borrow_mut(|windows| windows.remove(hwnd));
+    Ok(())
+}
+
 pub enum GetHwnd {
     Window(Handle),
     AnyOnCurrentThread,

@@ -2,7 +2,7 @@ use crate::{
     backend::headless::HeadlessBackend,
     runtime::runtime_init,
     win32::{
-        winuser::{create_window, register_class},
+        winuser::{create_window, destroy_window, register_class},
         wndproc::WndProcHandle,
     },
 };
@@ -19,6 +19,10 @@ fn create_and_destroy_toplvel_window() {
     );
 
     let hwnd = create_window("ClassName", "Title");
-    assert_eq!(hwnd.is_ok(), true);
+    assert!(hwnd.is_ok());
     assert_eq!(handle.borrow().window_count(), 1);
+
+    let hwnd = hwnd.unwrap();
+    assert!(destroy_window(hwnd).is_ok());
+    assert_eq!(handle.borrow().window_count(), 0);
 }

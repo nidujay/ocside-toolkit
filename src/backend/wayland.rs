@@ -272,6 +272,8 @@ impl Backend for WaylandBackend {
         Some(key)
     }
 
+    fn destroy_window(&mut self, handle: BackendWindowHandle) {}
+
     fn process(&mut self) -> Result<(), BackendError> {
         self.event_loop
             .dispatch(None, &mut self.wc)

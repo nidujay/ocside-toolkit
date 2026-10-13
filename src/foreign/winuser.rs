@@ -11,8 +11,8 @@ use crate::{
     win32::{
         error::{CaptureError, OcsideError},
         winuser::{
-            GetHwnd, WndProcHook, create_window, def_window_proc, dispatch_message, get_message,
-            post_quit_message, register_class,
+            GetHwnd, WndProcHook, create_window, def_window_proc, destroy_window, dispatch_message,
+            get_message, post_quit_message, register_class,
         },
         wndproc::WndProcHandle,
     },
@@ -130,6 +130,12 @@ impl From<Handle> for HWND {
     }
 }
 
+impl From<HWND> for Handle {
+    fn from(value: HWND) -> Self {
+        ffi_to_hwnd(value)
+    }
+}
+
 impl From<MSG> for Msg {
     fn from(msg: MSG) -> Msg {
         Msg::new(
@@ -171,6 +177,12 @@ fn ffi_create_window(lpClassName: LPCWSTR, lpWindowName: LPCWSTR) -> Result<HWND
     let title = String::try_from(Lpcwstr(lpWindowName))?;
     let hwnd = create_window(&class, &title)?;
     Ok(HWND::from(hwnd))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn DestroyWindow(hWnd: HWND) -> BOOL {
+    let hwnd = hWnd.into();
+    destroy_window(hwnd).last_error().is_ok().into()
 }
 
 #[unsafe(no_mangle)]

@@ -49,6 +49,10 @@ impl Backend for HeadlessBackend {
         }))
     }
 
+    fn destroy_window(&mut self, handle: BackendWindowHandle) {
+        self.state.borrow_mut().windows.remove(handle);
+    }
+
     fn process(&mut self) -> Result<(), super::BackendError> {
         todo!()
     }
@@ -57,9 +61,7 @@ impl Backend for HeadlessBackend {
         self.event_fd.as_raw_fd()
     }
 
-    fn paint(&self, _handle: super::BackendWindowHandle) {
-        todo!()
-    }
+    fn paint(&self, _handle: super::BackendWindowHandle) {}
 }
 
 impl HeadlessState {
