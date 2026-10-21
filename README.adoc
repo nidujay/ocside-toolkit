@@ -41,24 +41,21 @@ The first major milestone is to compile and run **Notepad++**.
 
 == Goals
 
-1. **Native Linux Desktop Environment**
-
-Build a first-class Linux desktop environment where applications run as native
-Linux applications, not Windows binaries running through a compatibility layer.
+1. **Native Linux Desktop Environment**: Build a first-class Linux desktop
+    environment where applications run as native Linux applications, not
+    Windows binaries running through a compatibility layer.
 
 * Linux kernel/userspace underneath
 * Wayland/XDG as the native graphical foundation
 * D-Bus, portals and other Linux facilities where appropriate
 
-2. **Win32/WinRT as the Application Platform**
+2. **Win32/WinRT as the Application Platform**: Provide an implementation of
+    the Win32 and WinRT programming models on Linux.
+    The application developer should see familiar Windows APIs while the
+    implementation uses appropriate Linux primitives underneath.
 
-Provide an implementation of the Win32 and WinRT programming models on Linux.
-The application developer should see familiar Windows APIs while the
-implementation uses appropriate Linux primitives underneath.
-
-3. **Minimise Developer Friction**
-
-A Windows application developer should not need to think about OCSIDE. Ideally:
+3. **Minimise Developer Friction**: A Windows application developer should not
+    need to think about OCSIDE. Ideally:
 
 * Upstream source compiles
 * No `#ifdef OCSIDE`
@@ -67,85 +64,65 @@ A Windows application developer should not need to think about OCSIDE. Ideally:
 * No runtime checks for OCSIDE
 * No maintaining a special OCSIDE fork
 
-4. **Semantic Compatibility Where It Matters**
+4. **Semantic Compatibility Where It Matters**: Don't attempt to perfectly
+    reproduce every historical Windows behaviour.
+    We'll focus on behavioural compatibility to maintain the user (and
+    developer) experience rather than maximising the percentage of Windows
+    APIs implemented.
 
-Don't attempt to perfectly reproduce every historical Windows behaviour.
-We'll focus on behavioural compatibility to maintain the user (and developer)
-experience rather than maximising the percentage of Windows APIs implemented.
-
-5. **Preserve the Linux Ecosystem**
-
-Applications should be able to interact naturally with Wayland, XWayland,
-D-Bus, XDG portals, Linux filesystems, system services, Vulkan/OpenGL and
-POSIX/Linux APIs. Win32/WinRT is the application-facing compatibility model,
-not a requirement to replace Linux's underlying ecosystem.
+5. **Preserve the Linux Ecosystem**: Applications should be able to interact
+    naturally with Wayland, XWayland, D-Bus, XDG portals, Linux filesystems,
+    system services, Vulkan/OpenGL and POSIX/Linux APIs. Win32/WinRT is the
+    application-facing compatibility model, not a requirement to replace
+    Linux's underlying ecosystem.
 
 ---
 
 == Non-Goals
 
-1. **Binary Compatibility:**
+1. **Binary Compatibility:**: Explicitly no PE loading, Windows `.exe` or
+    `.dll` compatibility, Windows ABI compatibility or running arbitrary
+    Windows binaries.
 
-Explicitly no PE loading, Windows `.exe` or `.dll` compatibility, Windows ABI
-compatibility or running arbitrary Windows binaries.
+2. **Reimplementing Windows/NT Internals:**: OCSIDE doesn't need to reproduce
+    the NT kernel architecture, Windows objectmanager, process implementation,
+    driver model, service architecture or Microsoft's internal COM
+    implementation; API compatibility does not imply implementation
+    compatibility.
 
-2. **Reimplementing Windows/NT Internals:**
+3. **Recreating Windows Itself:**: Not cloning Explorer, the Start menu, the
+    Windows taskbar, the Windows shell, the Windows registry or Windows UX
+    conventions wholesale. OCSIDE is a Linux DE with a Windows-compatible
+    application platform, not "Windows rebuilt on Linux".
 
-OCSIDE doesn't need to reproduce the NT kernel architecture, Windows object
-manager, process implementation, driver model, service architecture or
-Microsoft's internal COM implementation; API compatibility does not imply
-implementation compatibility.
+4. **Exhaustive Semantic Compatibility:**: Undocumented quirks, obscure APIs
+    and historical accidents aren't automatically compatibility requirements;
+    The project optimises for user impact, not completeness for its own sake.
 
-3. **Recreating Windows Itself:**
+5. **Application-Specific Compatibility Hacks:**: Applications should not need
+    an OCSIDE compatibility layer; If Notepad++ needs an `#ifdef OCSIDE`,
+    that's evidence that OCSIDE's implementation needs improvement, not
+    something the Notepad++ developers should be expected to accommodate for.
 
-Not cloning Explorer, the Start menu, the Windows taskbar, the Windows shell,
-the Windows registry or Windows UX conventions wholesale. OCSIDE is a Linux DE
-with a Windows-compatible application platform, not "Windows rebuilt on Linux".
-
-4. **Exhaustive Semantic Compatibility:**
-
-Undocumented quirks, obscure APIs and historical accidents aren't automatically
-compatibility requirements; The project optimises for user impact, not
-completeness for its own sake.
-
-5. **Application-Specific Compatibility Hacks:**
-
-Applications should not need an OCSIDE compatibility layer; If Notepad++ needs
-an `#ifdef OCSIDE`, that's evidence that OCSIDE's implementation needs
-improvement, not something the Notepad++ developers should be expected to
-accommodate for.
-
-6. **X11 as the Native Architecture:**
-
-X11/XWayland can be supported, but Wayland/XDG should be the native desktop
-foundation.
+6. **X11 as the Native Architecture:**: X11/XWayland can be supported, but
+    Wayland/XDG should be the native desktop foundation.
 
 ---
 
 == Roadmap
 
-1. **Finalise the Architecture:**
+1. **Finalise the Architecture:**: Currently only the top level window is
+    implemented. Create minimal demos - A hello world label on the Window area
+    and a Counter with a button and label - to flesh out child windows and
+    user interaction.
 
-Currently only the top level window is implemented. Create minimal demos -
-A hello world label on the Window area and a Counter with a button and label
-- to flesh out child windows and user interaction.
+2. **MSBuild Integration:**: Create an MSBuild project with appropriate
+    platform configurations to compile the Notepad++ solution and project
+    files, flushing out missing API calls.
 
-1. **Decouple Backend Architecture:**
+3. **API Implementation & Stubs:**: Implement missing `USER32`/`GDI32` APIs and
+    stubs uncovered during the MSBuild phase.
 
-Wayland toolkit from the main engine to create a headless stub backend
-specifically for unit testing.
-
-2. **MSBuild Integration:**
-
-Create an MSBuild project with appropriate platform configurations to compile
-the Notepad++ solution and project files, flushing out missing API calls.
-
-3. **API Implementation & Stubs:**
-
-Implement missing `USER32`/`GDI32` APIs and stubs uncovered during the MSBuild
-phase.
-
-4. **Visual Studio & WSL2 SDK:**
-
-Build a developer SDK enabling code compilation and execution in WSL2 directly
-using Visual C++ Community Edition
+4. **Visual Studio & WSL2 SDK:**: Build a developer SDK enabling code
+    compilation and execution in WSL2 directly using Visual C++ Community
+    Edition.
