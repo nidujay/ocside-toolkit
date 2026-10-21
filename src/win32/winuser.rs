@@ -13,11 +13,11 @@ pub struct LResult(pub isize);
 pub fn register_class(name: String, wndproc: WndProcHandle) -> Result<u16, OcsideError> {
     WINDOW_CLASSES.with(|wc| {
         let mut wc = wc.borrow_mut();
-        if wc.contains_key(&name) {
-            Err(OcsideError::ClassRegistered)
-        } else {
-            wc.insert(name, wndproc);
+        if let std::collections::hash_map::Entry::Vacant(e) = wc.entry(name) {
+            e.insert(wndproc);
             Ok(1)
+        } else {
+            Err(OcsideError::ClassRegistered)
         }
     })
 }
@@ -30,13 +30,13 @@ struct PendingWindow {
 impl PendingWindow {
     fn new(handle: Handle) -> Self {
         Self {
-            handle: handle,
+            handle,
             moved: false,
         }
     }
 
     fn _handle(&self) -> Handle {
-        self.handle.clone()
+        self.handle
     }
 
     fn commit(mut self) -> Handle {
@@ -64,7 +64,7 @@ pub fn create_window(class: &str, title: &str) -> Result<Handle, OcsideError> {
 
     // Allocate a handle
     let handle = WINDOWS.with_borrow_mut(|windows| windows.insert(Window::Placeholder));
-    let window = PendingWindow::new(handle.clone());
+    let window = PendingWindow::new(handle);
 
     // At this point we can invoke client wndproc with WM_CREATE, etc. If they return a failure,
     // the pre-allocated handle is dropped anyway
@@ -254,7 +254,7 @@ fn paint(hwnd: Handle) -> Result<(), OcsideError> {
             Window::Complete {
                 wndproc: _,
                 backend_handle,
-            } => backend_handle.clone(),
+            } => *backend_handle,
         }
     });
 

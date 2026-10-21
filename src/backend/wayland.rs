@@ -179,43 +179,43 @@ impl WaylandBackend {
         let conn = Connection::connect_to_env()?;
 
         let (globals, event_queue) =
-            registry_queue_init(&conn).map_err(|e| WaylandError::Init(e))?;
+            registry_queue_init(&conn).map_err(WaylandError::Init)?;
         let qh = event_queue.handle();
         let event_loop: EventLoop<WaylandConnection> =
-            EventLoop::try_new().map_err(|e| WaylandError::EventLoop(e))?;
+            EventLoop::try_new().map_err(WaylandError::EventLoop)?;
         let loop_handle = event_loop.handle();
 
         WaylandSource::new(conn.clone(), event_queue)
             .insert(loop_handle)
-            .map_err(|e| WaylandError::Source(e))?;
+            .map_err(WaylandError::Source)?;
 
         let compositor =
-            CompositorState::bind(&globals, &qh).map_err(|e| WaylandError::NoCompositor(e))?;
-        let xdg_shell = XdgShell::bind(&globals, &qh).map_err(|e| WaylandError::NoShell(e))?;
-        let shm = Shm::bind(&globals, &qh).map_err(|e| WaylandError::NoSharedMem(e))?;
+            CompositorState::bind(&globals, &qh).map_err(WaylandError::NoCompositor)?;
+        let xdg_shell = XdgShell::bind(&globals, &qh).map_err(WaylandError::NoShell)?;
+        let shm = Shm::bind(&globals, &qh).map_err(WaylandError::NoSharedMem)?;
         let xdg_activation = ActivationState::bind(&globals, &qh).ok();
         let loop_handle = event_loop.handle();
 
         println!("Backend raw FD={:?}", conn.as_fd().as_raw_fd());
         Ok(Self {
-            conn: conn,
+            conn,
             wc: WaylandConnection {
-                loop_handle: loop_handle,
-                shm: shm,
+                loop_handle,
+                shm,
                 seat_state: SeatState::new(&globals, &qh),
                 registry_state: RegistryState::new(&globals),
                 output_state: OutputState::new(&globals, &qh),
-                xdg_activation: xdg_activation,
+                xdg_activation,
                 keyboard: None,
                 pointer: None,
             },
-            event_loop: event_loop,
+            event_loop,
 
             _globals: globals,
-            qh: qh,
+            qh,
 
-            compositor: compositor,
-            xdg_shell: xdg_shell,
+            compositor,
+            xdg_shell,
         })
     }
 }
@@ -262,12 +262,12 @@ impl Backend for WaylandBackend {
                 height: 256,
                 configured: false,
                 buffer: None,
-                window: window,
-                pool: pool,
+                window,
+                pool,
             })
         });
 
-        HANDLES.with_borrow_mut(|handles| handles.insert(obj_id, key.clone()));
+        HANDLES.with_borrow_mut(|handles| handles.insert(obj_id, key));
         self.conn.flush().ok()?;
         Some(key)
     }
@@ -367,10 +367,9 @@ impl WindowHandler for WaylandConnection {
     fn request_close(&mut self, _: &Connection, _: &QueueHandle<Self>, window: &Window) {
         let id = window.wl_surface().id();
         let handle = HANDLES.with_borrow(|handles| {
-            handles
+            *handles
                 .get(&id)
                 .expect("Internal error: No callback registered")
-                .clone()
         });
 
         WINDOWS.with_borrow_mut(|windows| {
@@ -391,10 +390,9 @@ impl WindowHandler for WaylandConnection {
     ) {
         let id = window.wl_surface().id();
         let handle = HANDLES.with_borrow(|handles| {
-            handles
+            *handles
                 .get(&id)
                 .expect("Internal error: No callback registered")
-                .clone()
         });
 
         WINDOWS.with_borrow_mut(|windows| {

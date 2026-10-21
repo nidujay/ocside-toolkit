@@ -57,6 +57,12 @@ pub struct MsgQueue {
     event_fd: EventFd,
 }
 
+impl Default for MsgQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MsgQueue {
     pub fn new() -> Self {
         let (tx, rx) = channel();

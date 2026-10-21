@@ -2,6 +2,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(unused_variables)]
+#![allow(clippy::missing_safety_doc)]
 
 use slotmap::{Key, KeyData};
 
@@ -284,7 +285,7 @@ pub unsafe extern "C" fn TranslateMessage(lpMsg: LPMSG) -> BOOL {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DispatchMessageW(lpMsg: LPMSG) -> LRESULT {
-    if lpMsg.is_null() == false {
+    if !lpMsg.is_null() {
         let (raw_hwnd, msg, l_param, w_param) = (
             unsafe { (*lpMsg).hwnd },
             unsafe { (*lpMsg).message },

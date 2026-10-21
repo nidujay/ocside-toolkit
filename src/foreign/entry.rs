@@ -2,6 +2,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(unused_variables)]
+#![allow(clippy::missing_safety_doc)]
 
 use std::ffi::{c_char, c_int};
 
