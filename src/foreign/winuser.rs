@@ -11,8 +11,8 @@ use crate::{
     win32::{
         error::{CaptureError, OcsideError},
         winuser::{
-            GetHwnd, WndProcHook, create_window, def_window_proc, destroy_window, dispatch_message,
-            get_message, post_quit_message, register_class,
+            GetHwnd, LResult, WndProcHook, create_window, def_window_proc, destroy_window,
+            dispatch_message, get_message, post_quit_message, register_class,
         },
         wndproc::WndProcHandle,
     },
@@ -84,6 +84,18 @@ fn ffi_register_class(wc: &WNDCLASSW) -> Result<ATOM, OcsideError> {
     register_class(name, wndproc)
 }
 
+impl From<LResult> for LRESULT {
+    fn from(value: LResult) -> Self {
+        value.0
+    }
+}
+
+impl From<LRESULT> for LResult {
+    fn from(value: LRESULT) -> Self {
+        Self(value)
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DefWindowProcW(
     hWnd: HWND,
@@ -91,8 +103,11 @@ pub unsafe extern "C" fn DefWindowProcW(
     wParam: WPARAM,
     lParam: LPARAM,
 ) -> LRESULT {
-    def_window_proc(ffi_to_hwnd(hWnd), MsgType(Msg));
-    0
+    let mut wndproc = ClientWndProc {};
+    match def_window_proc(ffi_to_hwnd(hWnd), MsgType(Msg), &mut wndproc).last_error() {
+        Ok(result) => result.into(),
+        Err(_) => 0,
+    }
 }
 
 pub const CW_USEDEFAULT: UINT = 0x80000000;
@@ -182,7 +197,11 @@ fn ffi_create_window(lpClassName: LPCWSTR, lpWindowName: LPCWSTR) -> Result<HWND
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DestroyWindow(hWnd: HWND) -> BOOL {
     let hwnd = hWnd.into();
-    destroy_window(hwnd).last_error().is_ok().into()
+    let mut wndproc = ClientWndProc {};
+    destroy_window(hwnd, &mut wndproc)
+        .last_error()
+        .is_ok()
+        .into()
 }
 
 #[unsafe(no_mangle)]
@@ -280,25 +299,33 @@ pub unsafe extern "C" fn DispatchMessageW(lpMsg: LPMSG) -> LRESULT {
         };
         let msg = Msg::new(hwnd, MsgType(msg), WParam(w_param), LParam(l_param));
         let wndproc = ClientWndProc {};
-        dispatch_message(msg, wndproc);
-    }
-    0
-}
-
-struct ClientWndProc;
-impl WndProcHook for ClientWndProc {
-    fn invoke(&self, wndproc: WndProcHandle, hwnd: Handle, msg: MsgType, wparam: WParam) {
-        let raw_addr = wndproc.0;
-        let maybe_ptr: WNDPROC = unsafe { std::mem::transmute(raw_addr) };
-        let wndproc = maybe_ptr.unwrap(); // Non null guaranteed
-
-        unsafe {
-            wndproc(hwnd.into(), msg.0, wparam.0, 0);
+        match dispatch_message(msg, wndproc) {
+            Ok(r) => r.into(),
+            Err(_) => 0,
         }
+    } else {
+        0
     }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PostQuitMessage(nExitCode: INT) {
-    post_quit_message(nExitCode as u16);
+    let _ = post_quit_message(nExitCode as u16).last_error();
+}
+
+struct ClientWndProc;
+impl WndProcHook for ClientWndProc {
+    fn invoke(
+        &mut self,
+        wndproc: WndProcHandle,
+        hwnd: Handle,
+        msg: MsgType,
+        wparam: WParam,
+    ) -> LResult {
+        let raw_addr = wndproc.0;
+        let maybe_ptr: WNDPROC = unsafe { std::mem::transmute(raw_addr) };
+        let wndproc = maybe_ptr.unwrap(); // Non null guaranteed
+
+        unsafe { wndproc(hwnd.into(), msg.0, wparam.0, 0).into() }
+    }
 }

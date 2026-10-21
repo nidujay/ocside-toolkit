@@ -4,7 +4,7 @@ use crate::runtime::Handle;
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct MsgType(pub u32);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct WParam(pub u16);
 
 #[derive(Debug, Clone, Copy)]

@@ -5,12 +5,11 @@ use slotmap::SlotMap;
 
 use crate::backend::{Backend, BackendWindowHandle};
 
-#[derive(Clone)]
 pub struct HeadlessWindow {
     title: String,
+    handler: Box<dyn Fn(super::BackendEvent)>,
 }
 
-#[derive(Clone)]
 pub struct HeadlessState {
     windows: SlotMap<BackendWindowHandle, HeadlessWindow>,
 }
@@ -42,10 +41,11 @@ impl Backend for HeadlessBackend {
     fn create_window(
         &mut self,
         title: &str,
-        _handler: Box<dyn Fn(super::BackendEvent)>,
+        handler: Box<dyn Fn(super::BackendEvent)>,
     ) -> Option<super::BackendWindowHandle> {
         Some(self.state.borrow_mut().windows.insert(HeadlessWindow {
             title: title.to_string(),
+            handler,
         }))
     }
 
@@ -67,5 +67,15 @@ impl Backend for HeadlessBackend {
 impl HeadlessState {
     pub fn window_count(&self) -> usize {
         self.windows.len()
+    }
+
+    pub fn find(&self, title: &str) -> Option<BackendWindowHandle> {
+        let x = self.windows.iter().find(|kv| kv.1.title == title);
+        x.and_then(|kv| Some(kv.0))
+    }
+
+    pub fn post(&mut self, handle: BackendWindowHandle, event: super::BackendEvent) {
+        let x = self.windows.get_mut(handle).unwrap();
+        (x.handler)(event);
     }
 }

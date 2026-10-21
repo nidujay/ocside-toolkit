@@ -8,6 +8,8 @@ use crate::{
     winmsg::{LParam, Msg, MsgType, WM_CLOSE, WM_DESTROY, WM_PAINT, WM_QUIT, WParam},
 };
 
+pub struct LResult(pub isize);
+
 pub fn register_class(name: String, wndproc: WndProcHandle) -> Result<u16, OcsideError> {
     WINDOW_CLASSES.with(|wc| {
         let mut wc = wc.borrow_mut();
@@ -111,7 +113,10 @@ pub fn create_window(class: &str, title: &str) -> Result<Handle, OcsideError> {
     Ok(handle)
 }
 
-pub fn destroy_window(hwnd: Handle) -> Result<(), OcsideError> {
+pub fn destroy_window(hwnd: Handle, hook: &mut impl WndProcHook) -> Result<(), OcsideError> {
+    let wndproc = get_wndproc(hwnd)?;
+    hook.invoke(wndproc, hwnd, MsgType(WM_DESTROY), WParam(0));
+    // Remove the window handle now that it's destroyed
     WINDOWS.with_borrow_mut(|windows| windows.remove(hwnd));
     Ok(())
 }
@@ -174,26 +179,21 @@ fn process_backend_event() -> Result<(), OcsideError> {
 }
 
 pub trait WndProcHook {
-    fn invoke(&self, wndproc: WndProcHandle, hwnd: Handle, msg: MsgType, wparam: WParam);
+    fn invoke(
+        &mut self,
+        wndproc: WndProcHandle,
+        hwnd: Handle,
+        msg: MsgType,
+        wparam: WParam,
+    ) -> LResult;
 }
 
-pub fn dispatch_message(msg: Msg, hook: impl WndProcHook) {
+pub fn dispatch_message(msg: Msg, mut hook: impl WndProcHook) -> Result<LResult, OcsideError> {
     if let Some(hwnd) = msg.hwnd {
-        let wndproc = WINDOWS.with_borrow(|windows| {
-            let window = windows.get(hwnd);
-            if let Some(window) = window {
-                match window {
-                    Window::Placeholder => todo!(),
-                    Window::Complete {
-                        wndproc,
-                        backend_handle: _,
-                    } => *wndproc,
-                }
-            } else {
-                todo!();
-            }
-        });
-        hook.invoke(wndproc, hwnd, msg.msg, msg.wparam);
+        let wndproc = get_wndproc(hwnd).expect("TODO: generate error");
+        Ok(hook.invoke(wndproc, hwnd, msg.msg, msg.wparam))
+    } else {
+        Err(OcsideError::InvalidHandle)
     }
 }
 
@@ -203,44 +203,50 @@ pub enum PostHwnd {
     CurrentThread,
 }
 
-pub fn post_message(hwnd: PostHwnd, msg: MsgType, wparam: WParam, lparam: LParam) -> bool {
+pub fn post_message(
+    hwnd: PostHwnd,
+    msg: MsgType,
+    wparam: WParam,
+    lparam: LParam,
+) -> Result<(), OcsideError> {
     let sender = MSG_QUEUE.with_borrow(|mq| mq.clone_sender());
 
     match hwnd {
-        PostHwnd::Window(hwnd) => sender
-            .send(Msg::new(Some(hwnd), msg, wparam, lparam))
-            .is_ok(),
-        PostHwnd::CurrentThread => sender.send(Msg::new(None, msg, wparam, lparam)).is_ok(),
+        PostHwnd::Window(hwnd) => Ok(sender.send(Msg::new(Some(hwnd), msg, wparam, lparam))?),
+        PostHwnd::CurrentThread => Ok(sender.send(Msg::new(None, msg, wparam, lparam))?),
         _ => todo!(),
     }
 }
 
-pub fn post_quit_message(exit_code: u16) {
+pub fn post_quit_message(exit_code: u16) -> Result<(), OcsideError> {
     post_message(
         PostHwnd::CurrentThread,
         MsgType(WM_QUIT),
         WParam(exit_code),
         LParam(0),
-    );
+    )
 }
 
-pub fn def_window_proc(hwnd: Handle, msg: MsgType) {
+pub fn def_window_proc(
+    hwnd: Handle,
+    msg: MsgType,
+    hook: &mut impl WndProcHook,
+) -> Result<LResult, OcsideError> {
     println!("DefWindowProc: {:?} for {:?}", msg, hwnd);
     match msg.0 {
         WM_CLOSE => {
-            post_message(
-                PostHwnd::Window(hwnd),
-                MsgType(WM_DESTROY),
-                WParam(0),
-                LParam(0),
-            );
+            destroy_window(hwnd, hook)?;
+            Ok(LResult(0))
         }
-        WM_PAINT => paint(hwnd),
+        WM_PAINT => {
+            paint(hwnd)?;
+            Ok(LResult(0))
+        }
         _ => todo!(),
     }
 }
 
-fn paint(hwnd: Handle) {
+fn paint(hwnd: Handle) -> Result<(), OcsideError> {
     let window = WINDOWS.with_borrow_mut(|windows| {
         let window = windows.get(hwnd).unwrap();
         match window {
@@ -260,4 +266,23 @@ fn paint(hwnd: Handle) {
 
         backend.paint(window);
     });
+
+    Ok(())
+}
+
+fn get_wndproc(hwnd: Handle) -> Result<WndProcHandle, OcsideError> {
+    WINDOWS.with_borrow(|windows| {
+        let window = windows.get(hwnd);
+        if let Some(window) = window {
+            match window {
+                Window::Placeholder => todo!(),
+                Window::Complete {
+                    wndproc,
+                    backend_handle: _,
+                } => Ok(*wndproc),
+            }
+        } else {
+            Err(OcsideError::InvalidHandle)
+        }
+    })
 }

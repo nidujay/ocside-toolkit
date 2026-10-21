@@ -1,6 +1,8 @@
+use std::sync::mpsc::SendError;
+
 use thiserror::Error;
 
-use crate::backend;
+use crate::{backend, winmsg::Msg};
 
 #[derive(Debug, Error)]
 pub enum OcsideError {
@@ -16,10 +18,14 @@ pub enum OcsideError {
     ClassRegistered,
     #[error("Failed to create the window")]
     WindowCreateFailed,
+    #[error("Invalid handle")]
+    InvalidHandle,
     #[error("Poll error response")]
     PollError,
     #[error("Backend error")]
     BackendError(#[from] backend::BackendError),
+    #[error("Failed to post message")]
+    PostFail(#[from] SendError<Msg>),
 }
 
 pub trait CaptureError<T, E> {

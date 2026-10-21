@@ -272,7 +272,16 @@ impl Backend for WaylandBackend {
         Some(key)
     }
 
-    fn destroy_window(&mut self, handle: BackendWindowHandle) {}
+    fn destroy_window(&mut self, handle: BackendWindowHandle) {
+        println!("destroy_window started");
+        let window =
+            WINDOWS.with_borrow_mut(|windows| windows.remove(handle).expect("BUG: Invalid Handle"));
+        println!("Removed window");
+        let obj_id = window.window.wl_surface().id();
+        HANDLES
+            .with_borrow_mut(|handles| handles.remove(&obj_id).expect("BUG: Inconsistent state"));
+        println!("Removed handle");
+    }
 
     fn process(&mut self) -> Result<(), BackendError> {
         self.event_loop
