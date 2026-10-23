@@ -43,3 +43,6 @@ pub type LPARAM = LONG_PTR;
 pub type HICON = HANDLE;
 pub type HCURSOR = HANDLE;
 pub type HBRUSH = HANDLE;
+
+pub type WNDPROC =
+    Option<unsafe extern "C" fn(hwnd: HWND, msg: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT>;
